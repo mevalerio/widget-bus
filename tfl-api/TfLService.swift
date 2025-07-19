@@ -4,7 +4,7 @@ import CoreLocation
 
 // MARK: - Data Structures for TfL API Response
 
-struct StopPoint: Codable {
+public struct StopPoint: Codable {
     let naptanId: String
     let commonName: String
     let distance: Double
@@ -22,7 +22,11 @@ struct Arrival: Codable {
     let timeToStation: Int // in seconds
 }
 
-class TfLService: NSObject, CLLocationManagerDelegate {
+import Combine
+
+class TfLService: NSObject, ObservableObject, CLLocationManagerDelegate {
+
+    @Published var arrivals: [Arrival] = []
 
     private let locationManager = CLLocationManager()
     private var apiKey: String = "" // Replace with your TfL API key
@@ -44,52 +48,46 @@ class TfLService: NSObject, CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-        fetchBusStops(around: location.coordinate)
+        Task {
+            do {
+                let stopPoints = try await fetchBusStops(around: location.coordinate)
+                var allArrivals: [Arrival] = []
+                for stopPoint in stopPoints {
+                    let arrivals = try await fetchArrivals(for: stopPoint.naptanId)
+                    allArrivals.append(contentsOf: arrivals)
+                }
+                DispatchQueue.main.async {
+                    self.arrivals = allArrivals.sorted { $0.timeToStation < $1.timeToStation }
+                }
+            } catch {
+                print("Error fetching data: \(error.localizedDescription)")
+            }
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         print("Failed to get user location: \(error.localizedDescription)")
     }
 
-    private func fetchBusStops(around coordinate: CLLocationCoordinate2D) {
+    private func fetchBusStops(around coordinate: CLLocationCoordinate2D) async throws -> [StopPoint] {
         let urlString = "https://api.tfl.gov.uk/StopPoint?stopTypes=NaptanPublicBusCoachTram&lat=\(coordinate.latitude)&lon=\(coordinate.longitude)&radius=\(radius)&app_key=\(apiKey)"
-        guard let url = URL(string: urlString) else { return }
+        guard let url = URL(string: urlString) else {
+            throw URLError(.badURL)
+        }
 
-        URLSession.shared.dataTask(with: url) { data, response, error in
-            guard let data = data, error == nil else {
-                print("Failed to fetch bus stops: \(error?.localizedDescription ?? "Unknown error")")
-                return
-            }
-
-            do {
-                let response = try JSONDecoder().decode(StopPointsResponse.self, from: data)
-                response.stopPoints.forEach { stopPoint in
-                    self.fetchArrivals(for: stopPoint.naptanId)
-                }
-            } catch {
-                print("Failed to decode bus stops: \(error.localizedDescription)")
-            }
-        }.resume()
+        let (data, _) = try await URLSession.shared.data(from: url)
+        let response = try JSONDecoder().decode(StopPointsResponse.self, from: data)
+        return response.stopPoints
     }
 
-    private func fetchArrivals(for stopId: String) {
+    private func fetchArrivals(for stopId: String) async throws -> [Arrival] {
         let urlString = "https://api.tfl.gov.uk/StopPoint/\(stopId)/Arrivals?app_key=\(apiKey)"
-        guard let url = URL(string: urlString) else { return }
+        guard let url = URL(string: urlString) else {
+            throw URLError(.badURL)
+        }
 
-        URLSession.shared.dataTask(with: url) { data, response, error in
-            guard let data = data, error == nil else {
-                print("Failed to fetch arrivals: \(error?.localizedDescription ?? "Unknown error")")
-                return
-            }
-
-            do {
-                let arrivals = try JSONDecoder().decode([Arrival].self, from: data)
-                // Now we have the arrivals, we can process them
-                // For now, let's just print them
-                print("Arrivals for stop \(stopId): \(arrivals)")
-            } catch {
-                print("Failed to decode arrivals: \(error.localizedDescription)")
-            }
-        }.resume()
+        let (data, _) = try await URLSession.shared.data(from: url)
+        let arrivals = try JSONDecoder().decode([Arrival].self, from: data)
+        return arrivals
     }
 }

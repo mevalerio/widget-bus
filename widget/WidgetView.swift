@@ -1,5 +1,6 @@
 
 import SwiftUI
+import TfLService
 
 struct WidgetView: View {
     var entry: SimpleEntry

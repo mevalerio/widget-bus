@@ -1,6 +1,8 @@
 
 import WidgetKit
 import SwiftUI
+import SystemMonitor
+import TfLService
 
 struct Provider: TimelineProvider {
     func placeholder(in context: Context) -> SimpleEntry {
@@ -13,26 +15,32 @@ struct Provider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> ()) {
-        let systemMonitor = SystemMonitor()
-        let tflService = TfLService()
+        Task {
+            let systemMonitor = SystemMonitor()
+            let tflService = TfLService()
 
-        // You will need to provide your TfL API key here
-        // tflService.setApiKey("YOUR_TFL_API_KEY")
-        tflService.start()
+            // You will need to provide your TfL API key here
+            // tflService.setApiKey("YOUR_TFL_API_KEY")
+            tflService.start()
 
-        let currentDate = Date()
-        let nextUpdateDate = Calendar.current.date(byAdding: .minute, value: 5, to: currentDate)!
+            let currentDate = Date()
+            let nextUpdateDate = Calendar.current.date(byAdding: .second, value: 15, to: currentDate)!
 
-        let cpuUsage = systemMonitor.getCPUUsage()
-        let memoryUsage = systemMonitor.getMemoryUsage()
-        let gpuUsage = systemMonitor.getGPUUsage()
+            let cpuUsage = systemMonitor.getCPUUsage()
+            let memoryUsage = systemMonitor.getMemoryUsage()
+            let gpuUsage = systemMonitor.getGPUUsage()
 
-        // This is a placeholder for the arrivals. In a real app, you would get this from the TfLService.
-        let arrivals: [Arrival] = []
+            // Wait for arrivals to be fetched by TfLService
+            // This is a simplified approach. In a real app, you might use Combine or async streams
+            // to observe changes in tflService.arrivals.
+            // For now, we'll just use the current arrivals after a short delay or a more robust mechanism.
+            try await Task.sleep(nanoseconds: 1_000_000_000) // Wait for 1 second for data to potentially arrive
+            let arrivals = tflService.arrivals
 
-        let entry = SimpleEntry(date: currentDate, cpuUsage: cpuUsage, memoryUsage: memoryUsage, gpuUsage: gpuUsage, arrivals: arrivals)
-        let timeline = Timeline(entries: [entry], policy: .after(nextUpdateDate))
-        completion(timeline)
+            let entry = SimpleEntry(date: currentDate, cpuUsage: cpuUsage, memoryUsage: memoryUsage, gpuUsage: gpuUsage, arrivals: arrivals)
+            let timeline = Timeline(entries: [entry], policy: .after(nextUpdateDate))
+            completion(timeline)
+        }
     }
 }
 
